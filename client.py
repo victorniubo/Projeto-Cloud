@@ -95,7 +95,7 @@ class Client:
         return sg_id
 
 
-    def createInstance(self, name:str, initial_script:str, Type: 't2.micro', key='victor_key', sg='default'):
+    def createInstance(self, name:str, initial_script:str, InstType = 't2.micro', key = 'victor_key', sg = 'default'):
 
         
         
@@ -104,7 +104,7 @@ class Client:
 
         response = self.client.run_instance(
             ImageId = self.imgId,
-            InstanceType = Type,
+            InstanceType = InstType,
             MinCount = 1,
             MaxCount = 1,
             KeyName = key,
@@ -151,32 +151,36 @@ class Client:
                 'Values' : ['running']
             }
         ])
-
-        inst_ips = []
-        inst_ids = []
-
-        for i in response['Reservations']:
-            inst_ids.append(i['Instances'][0]['InstanceId'])
-            inst_ips.append(i['Instances'][0]['PublicIpAddress'])
         
-        for ip in inst_ips:
-            response = self.client.describe_adresses(PublicIps = [ip])
+        if response['Reservations']:
 
-            allocation = response['Adresses'][0]['AllocationId']
+            inst_ips = []
+            inst_ids = []
 
-            response = self.client.release_adresses(AllocationId = allocation)
-        
-        print(f"{self.color.OKCYAN}Endereços liberados: \n {inst_ips}{self.color.ENDC}")
+            for i in response['Reservations']:
+                inst_ids.append(i['Instances'][0]['InstanceId'])
+                inst_ips.append(i['Instances'][0]['PublicIpAddress'])
+            
+            for ip in inst_ips:
+                response = self.client.describe_adresses(PublicIps = [ip])
 
-        for id in inst_ids:
-            response = self.client.terminate_instances(InstanceId = [id])
+                allocation = response['Adresses'][0]['AllocationId']
 
-            print(f"{self.color.WARNING}Terminando Instância {id}{self.color.ENDC}")
+                response = self.client.release_adresses(AllocationId = allocation)
+            
+            print(f"{self.color.OKCYAN}Endereços liberados: \n {inst_ips}{self.color.ENDC}")
 
-            waiter = self.client.get_waiter('instance_terminated')
-            waiter.wait(InstanceIds=[id])
+            for id in inst_ids:
+                response = self.client.terminate_instances(InstanceId = [id])
 
-            print(f"{self.color.OKCYAN}Instância {id} terminada{self.color.ENDC}")
-        
-        print(f"{self.color.OKGREEN}Todas as Instâncias de {self.region} foram terminadas{self.color.ENDC}")
+                print(f"{self.color.WARNING}Terminando Instância {id}{self.color.ENDC}")
 
+                waiter = self.client.get_waiter('instance_terminated')
+                waiter.wait(InstanceIds=[id])
+
+                print(f"{self.color.OKCYAN}Instância {id} terminada{self.color.ENDC}")
+            
+            print(f"{self.color.OKGREEN}Todas as Instâncias de {self.region} foram terminadas{self.color.ENDC}")
+
+        else:
+            print(f"{self.color.WARNING}Não existe nenhuma instância sua em {self.region}{self.color.ENDC}")
