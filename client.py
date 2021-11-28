@@ -61,7 +61,7 @@ class Client:
 
     def createSecurityGroup(self, name:str, description:str, port_list:list):
 
-        response = self.client.describe_secutity_groups(Filters = [
+        response = self.client.describe_security_groups(Filters = [
             {
                 'Name' : 'group-name',
                 'Values' : [name]
@@ -99,10 +99,10 @@ class Client:
 
         
         
-        response = self.client.allocate_adress()
+        response = self.client.allocate_address()
         instance_ip = response['PublicIp']
 
-        response = self.client.run_instance(
+        response = self.client.run_instances(
             ImageId = self.imgId,
             InstanceType = InstType,
             MinCount = 1,
@@ -157,21 +157,21 @@ class Client:
             inst_ips = []
             inst_ids = []
 
-            for i in response['Reservations']:
-                inst_ids.append(i['Instances'][0]['InstanceId'])
-                inst_ips.append(i['Instances'][0]['PublicIpAddress'])
+            for inst in response['Reservations']:
+                inst_ips.append(inst['Instances'][0]['PublicIpAddress'])
+                inst_ids.append(inst['Instances'][0]['InstanceId'])
             
             for ip in inst_ips:
-                response = self.client.describe_adresses(PublicIps = [ip])
+                response = self.client.describe_addresses(PublicIps = [ip])
 
-                allocation = response['Adresses'][0]['AllocationId']
+                allocation = response['Addresses'][0]['AllocationId']
 
-                response = self.client.release_adresses(AllocationId = allocation)
+                response = self.client.release_address(AllocationId = allocation)
             
             print(f"{self.color.OKCYAN}Endereços liberados: \n {inst_ips}{self.color.ENDC}")
 
             for id in inst_ids:
-                response = self.client.terminate_instances(InstanceId = [id])
+                response = self.client.terminate_instances(InstanceIds = [id])
 
                 print(f"{self.color.WARNING}Terminando Instância {id}{self.color.ENDC}")
 
