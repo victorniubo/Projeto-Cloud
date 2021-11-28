@@ -1,5 +1,4 @@
 # Keys AWS
-keys/*
 *.pem
 
 # VS code
