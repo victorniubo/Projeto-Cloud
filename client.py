@@ -45,7 +45,7 @@ class Client:
             response = self.client.delete_key_pair(KeyName=name)
 
     
-        print(f"{self.color.OKCYAN}Gerando nova Key Pair de nome: {name}{self.color.ENDC}")
+        print(f"{self.color.HEADER}Gerando nova Key Pair de nome: {name}{self.color.ENDC}")
         response = self.client.create_key_pair(KeyName=name)
 
         if os.path.exists(file):
@@ -74,7 +74,7 @@ class Client:
 
             response = self.client.delete_security_group(GroupName = name)
 
-        print(f"{self.color.OKCYAN}Criando novo Security Group de nome: {name}{self.color.ENDC}")
+        print(f"{self.color.HEADER}Criando novo Security Group de nome: {name}{self.color.ENDC}")
         response = self.client.create_security_group(GroupName = name, Description = description)
 
         sg_id = response['GroupId']
@@ -127,7 +127,7 @@ class Client:
 
         instance_id = response['Instances'][0]["InstanceId"]
 
-        print(f"{self.color.OKCYAN}Criando nova Instância de nome: {name}{self.color.ENDC}")
+        print(f"{self.color.HEADER}Criando nova Instância de nome: {name}{self.color.ENDC}")
 
         waiter = self.client.get_waiter('instance_running')
         waiter.wait(InstanceIds=[instance_id])
