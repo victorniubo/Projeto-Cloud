@@ -27,6 +27,10 @@ class Client:
 
         self.client = boto3.client("ec2", config=self.aws_config)
 
+        self.loadbalancer = boto3.client('elbv2', config=self.aws_config)
+
+        self.autoscaling = boto3.client("autoscaling", config=self.aws_config)
+
     
     def createKeyPair (self, name:str):
 
@@ -44,6 +48,7 @@ class Client:
 
             response = self.client.delete_key_pair(KeyName=name)
 
+            print(f"{self.color.OKCYAN}Key Pair {name} deletada{self.color.ENDC}")
     
         print(f"{self.color.HEADER}Gerando nova Key Pair de nome: {name}{self.color.ENDC}")
         response = self.client.create_key_pair(KeyName=name)
@@ -59,6 +64,8 @@ class Client:
 
         print(f"{self.color.OKGREEN}Key Pair criada com sucesso{self.color.ENDC}")
 
+        return name
+
     def createSecurityGroup(self, name:str, description:str, port_list:list):
 
         response = self.client.describe_security_groups(Filters = [
@@ -73,6 +80,7 @@ class Client:
             print(f"{self.color.WARNING}Apagando Security Group existente{self.color.ENDC}")
 
             response = self.client.delete_security_group(GroupName = name)
+            print(f"{self.color.OKCYAN}Security Group {name} deletado{self.color.ENDC}")
 
         print(f"{self.color.HEADER}Criando novo Security Group de nome: {name}{self.color.ENDC}")
         response = self.client.create_security_group(GroupName = name, Description = description)
@@ -137,7 +145,7 @@ class Client:
         print(f"{self.color.OKGREEN}Instância criada com sucesso{self.color.ENDC}")
         print(f"Name: {name} \n ID: {instance_id} \n IP: {instance_ip}")
 
-        return instance_ip
+        return instance_ip, instance_id
     
     def killAll (self):
 
@@ -184,3 +192,293 @@ class Client:
 
         else:
             print(f"{self.color.WARNING}Não existe nenhuma instância sua em {self.region}{self.color.ENDC}")
+        
+        # try:
+        #     response = self.loadbalancer.describe_load_balancers(
+                
+        #         Names=[
+        #             'loadbalancerV'
+        #         ]
+        #     )
+        #     if response['LoadBalancers']:
+        #         print(f"{self.color.WARNING}Apagando Load Balancer: {'loadbalancerV'}{self.color.ENDC}")
+        #         lb_arn = response['LoadBalancers'][0]['LoadBalancerArn']
+        #         response = self.loadbalancer.delete_load_balancer(
+        #             LoadBalancerArn = lb_arn
+        #         )
+        # except:
+        #     pass
+
+
+    def createIMG (self, name:str, description:str, instanceID: str):
+
+        response = self.client.describe_images(
+         
+            Filters=[
+                {
+                    'Name': 'name',
+                    'Values': [
+                        name
+                    ]
+                },
+            ]
+        )
+        if response['Images']:
+            print(f"{self.color.WARNING}Apagando Imagem: {name}{self.color.ENDC}")
+            response = self.client.deregister_image(ImageId=response['Images'][0]['ImageId'])
+            print(f"{self.color.OKCYAN}Imagem {name} deletada{self.color.ENDC}")
+
+        print(f"{self.color.HEADER}Criando nova Imagem de nome: {name}{self.color.ENDC}")
+
+        response = self.client.create_image(
+       
+            Description= description,
+
+            InstanceId = instanceID,
+
+            Name = name,
+    
+            TagSpecifications=[
+                {
+                    'ResourceType':'image',
+                    'Tags': [
+                        {
+                            'Key': 'Criador',
+                            'Value': 'Victor'
+                        },
+                    ]
+                },
+            ]
+        )
+        # self.ec2_resource.Image(response["ImageId"]).wait_until_exists()
+        waiter = self.client.get_waiter("image_available")
+        waiter.wait(ImageIds=[response["ImageId"]])
+        print(f"{self.color.OKGREEN}Imagem criada com sucesso{self.color.ENDC}")
+
+        return response['ImageId']
+    
+    def createTargetGroup (self, tg_name:str):
+        try:
+            response = self.loadbalancer.describe_target_groups(
+                
+                Names=[
+                    tg_name
+                ]
+            )
+            if response['TargetGroups']:
+                print(f"{self.color.WARNING}Apagando Target Group: {tg_name}{self.color.ENDC}")
+                tg_arn = response['TargetGroups'][0]['TargetGroupArn']
+                response = self.loadbalancer.delete_target_group(
+                    TargetGroupArn = tg_arn
+                )
+                print(f"{self.color.OKCYAN}Target Group {tg_name} deletado{self.color.ENDC}")
+            else:
+                print(f"{self.color.WARNING}Não existe nenhum Target Group com nome: {tg_name}{self.color.ENDC}")
+        except:
+            print(f"{self.color.WARNING}Não existe nenhum Target Group com nome: {tg_name}{self.color.ENDC}")
+            pass
+        
+        
+
+        print(f"{self.color.HEADER}Criando novo Target Group de nome: {tg_name}{self.color.ENDC}")
+
+
+        response = self.loadbalancer.create_target_group(
+            Name=tg_name,
+            Protocol='HTTP',
+            ProtocolVersion='HTTP1',
+            Port=8080,
+            VpcId='vpc-40ea2a3a',
+            
+            TargetType='instance',
+            Tags=[
+                {
+                    'Key': 'Criador',
+                    'Value': 'Victor'
+                },
+            ],
+        )
+
+        print(f"{self.color.OKGREEN}Target Group {tg_name} criado com sucesso{self.color.ENDC}")
+
+        response = self.loadbalancer.describe_target_groups(
+                
+                Names=[
+                    tg_name
+                ]
+            )
+        if response['TargetGroups']:
+            
+            tg_arn_real = response['TargetGroups'][0]['TargetGroupArn']
+
+        return tg_arn_real
+
+
+    def createLoadBalancer (self, lb_name:str, scrt_group_id: str):
+        
+        
+        try:
+            response = self.loadbalancer.describe_load_balancers(
+                
+                Names=[
+                    lb_name
+                ]
+            )
+            if response['LoadBalancers']:
+                print(f"{self.color.WARNING}Apagando Load Balancer: {lb_name}{self.color.ENDC}")
+                lb_arn = response['LoadBalancers'][0]['LoadBalancerArn']
+                response = self.loadbalancer.delete_load_balancer(
+                    LoadBalancerArn = lb_arn
+                )
+                print(f"{self.color.OKCYAN}Load Balancer {lb_name} deletado{self.color.ENDC}")
+            else:
+                print(f"{self.color.WARNING}Não existe nenhum LoadBalancer com nome: {lb_name}{self.color.ENDC}")
+        except:
+            print(f"{self.color.WARNING}Não existe nenhum Load Balancer com nome: {lb_name}{self.color.ENDC}")
+            pass
+
+
+        
+        
+        print(f"{self.color.HEADER}Criando novo Load Balancer de nome: {lb_name}{self.color.ENDC}")
+
+        response = self.loadbalancer.create_load_balancer(
+            Name = lb_name,
+            Subnets=[
+                'subnet-9b93d2d1', 'subnet-9d8230c1', 'subnet-52d46435', 'subnet-0758e429', 'subnet-5da66163', 'subnet-7b196e74'
+            ],
+            
+            SecurityGroups=[
+                scrt_group_id,
+            ],
+            Scheme='internet-facing',
+            Tags=[
+                {
+                    'Key': 'Criador',
+                    'Value': 'Victor'
+                },
+            ],
+            Type='application',
+            IpAddressType='ipv4',
+        )
+        response = self.loadbalancer.describe_load_balancers(
+                
+            Names=[
+                lb_name
+            ]
+        )
+        if response['LoadBalancers']:
+            
+            lb_arn_real = response['LoadBalancers'][0]['LoadBalancerArn']
+            dns = response['LoadBalancers'][0]['DNSName']
+
+        waiter = self.loadbalancer.get_waiter("load_balancer_available")
+        waiter.wait(
+            Names=[
+                lb_name
+            ]
+        )
+
+        print(f"{self.color.OKGREEN}Load Balancer criado com sucesso: \n {dns}{self.color.ENDC}")
+
+        return lb_arn_real
+    
+    def deleteLoadBalancer(self, lb_name:str):
+        try:
+            response = self.loadbalancer.describe_load_balancers(
+                
+                Names=[
+                    lb_name
+                ]
+            )
+            if response['LoadBalancers']:
+                print(f"{self.color.WARNING}Apagando Load Balancer: {lb_name}{self.color.ENDC}")
+                lb_arn = response['LoadBalancers'][0]['LoadBalancerArn']
+                response = self.loadbalancer.delete_load_balancer(
+                    LoadBalancerArn = lb_arn
+                )
+                print(f"{self.color.OKCYAN}Load Balancer {lb_name} deletado{self.color.ENDC}")
+            else:
+                print(f"{self.color.WARNING}Não existe nenhum LoadBalancer com nome: {lb_name}{self.color.ENDC}")
+        except:
+            print(f"{self.color.WARNING}Não existe nenhum Load Balancer com nome: {lb_name}{self.color.ENDC}")
+            pass
+
+    def createListener(self, lb_arn, tg_arn):
+
+        # try:
+        #     response = self.loadbalancer.describe_listeners(LoadBalancerArn=lb_arn)
+
+        #     self.loadbalancer.delete_listener(ListenerArn='string')
+
+        # except:
+        #     print(f"{self.color.WARNING}Não existe nenhum Listener ativo{self.color.ENDC}")
+        #     pass
+
+        response = self.loadbalancer.create_listener(
+            LoadBalancerArn=lb_arn,
+            Protocol='HTTP',
+            Port=80,
+            
+            DefaultActions=[
+                {
+                    'Type': 'forward',
+                    'TargetGroupArn': tg_arn,
+                },
+            ],    
+        )
+
+
+        
+    
+    def createAutoScaling(self, AS_name:str, LC_name:str, img_id:str, key:str, scrt_group_name:str, tg_arn:str):
+
+        try:
+            self.autoscaling.delete_launch_configuration(LaunchConfigurationName=LC_name)
+
+            self.autoscaling.delete_auto_scaling_group(AutoScalingGroupName=AS_name, ForceDelete=True)
+
+        except:
+            print(f"{self.color.WARNING}Não existe nenhum Launch Configuration ou AutoScaling com nomes: {LC_name} e {AS_name}{self.color.ENDC}")
+            pass
+
+        print(f"{self.color.HEADER}Criando Launch Configuration de nome: {LC_name}{self.color.ENDC}")
+        
+        response = self.autoscaling.create_launch_configuration(
+            LaunchConfigurationName=LC_name,
+            ImageId=img_id,
+            KeyName=key,
+            SecurityGroups=[
+                scrt_group_name,
+            ],
+            InstanceType='t2.micro'
+        )
+        print(f"{self.color.OKCYAN}Launch Configuration {LC_name} criada{self.color.ENDC}")
+
+        print(f"{self.color.HEADER}Criando AutoScaling de nome: {AS_name}{self.color.ENDC}")
+
+        response = self.autoscaling.create_auto_scaling_group(
+            AutoScalingGroupName = AS_name,
+            LaunchConfigurationName='LaunchConfig_v',
+            
+            MinSize=1,
+            MaxSize=5,
+            
+            AvailabilityZones=[
+                'us-east-1d', 'us-east-1c', 'us-east-1e', 'us-east-1f', 'us-east-1a', 'us-east-1b'
+            ],
+            TargetGroupARNs=[
+                'string',
+            ],
+            
+            Tags=[
+                {
+                    'Key': 'Criador',
+                    'Value': 'Victor',
+                    
+                }
+            ],
+            
+        )
+
+        print(f"{self.color.OKCYAN}AutoScaling {AS_name} criada{self.color.ENDC}")

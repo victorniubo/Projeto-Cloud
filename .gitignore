@@ -1,6 +1,9 @@
 # Keys AWS
 *.pem
 
+# Notebooks
+*.ipynb
+
 # VS code
 .vscode
 
