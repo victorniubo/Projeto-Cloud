@@ -17,8 +17,9 @@ img_id = client_django.createIMG('DjangoIMG', "Imagem de instancia com Django in
 client_django.killAll()
 tg_arn = client_django.createTargetGroup('targetgroupV')
 client_django.deleteLoadBalancer('loadbalancerV')
+
 sg_id = client_django.createSecurityGroup('LoadBalancer_SG', "Security Group do Load Balancer", [22, 80, 8080])
-lb_arn = client_django.createLoadBalancer('loadbalancerV','targetgroupV', sg_id)
+lb_arn = client_django.createLoadBalancer('loadbalancerV', sg_id)
 client_django.createListener(lb_arn, tg_arn)
 client_django.createSecurityGroup('AutoScaling_SG', 'Security Group do AutoScaler', [80, 8080])
 client_django.createAutoScaling('autoscalingV', 'launchconfigV', img_id, key_name, 'AutoScaling_SG', tg_arn)

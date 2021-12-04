@@ -4,6 +4,7 @@ from botocore.config import Config
 import sys, os, stat
 import subprocess as sp
 from cores import bcolors
+import time
 
 class Client:
 
@@ -97,6 +98,19 @@ class Client:
         
         response = self.client.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=permissions)
 
+        waiter = self.client.get_waiter('security_group_exists')
+        waiter.wait(
+            Filters=[
+                {
+                    'Name': 'group-name',
+                    'Values': [
+                        name,
+                    ]
+                },
+            ]
+            
+        )
+
         print(f"{self.color.OKGREEN}Security Group criado com sucesso{self.color.ENDC}")
         print(f"Name: {name} \n ID: {sg_id} \n Ports: {port_list}")
 
@@ -137,17 +151,45 @@ class Client:
 
         print(f"{self.color.HEADER}Criando nova Instância de nome: {name}{self.color.ENDC}")
 
-        waiter = self.client.get_waiter('instance_running')
+        waiter = self.client.get_waiter('instance_status_ok')
         waiter.wait(InstanceIds=[instance_id])
 
         response = self.client.associate_address(InstanceId=instance_id, PublicIp=instance_ip)
 
-        print(f"{self.color.OKGREEN}Instância criada com sucesso{self.color.ENDC}")
+        print(f"{self.color.OKGREEN}Instância criada e funcionando com sucesso{self.color.ENDC}")
         print(f"Name: {name} \n ID: {instance_id} \n IP: {instance_ip}")
 
         return instance_ip, instance_id
     
     def killAll (self):
+
+        if self.region == 'us-east-1':
+            response = self.client.describe_instances(Filters = [
+                {
+                    'Name' : 'tag:Name',
+                    'Values' : ['autoscaled_v']
+                },
+            ])
+
+            if response['Reservations']:
+
+                as_ids = []
+                for inst in response['Reservations']:
+                    
+                    as_ids.append(inst['Instances'][0]['InstanceId'])
+
+                for id in as_ids:
+
+                    response = self.client.terminate_instances(InstanceIds = [id])
+
+                    print(f"{self.color.WARNING}Terminando Instância AS{id}{self.color.ENDC}")
+
+
+            self.autoscaling.delete_auto_scaling_group(AutoScalingGroupName='autoscalingV', ForceDelete=True)
+
+            # self.autoscaling.delete_launch_configuration(LaunchConfigurationName='launchconfigV')
+
+
 
         response = self.client.describe_instances(Filters = [
             {
@@ -193,6 +235,8 @@ class Client:
         else:
             print(f"{self.color.WARNING}Não existe nenhuma instância sua em {self.region}{self.color.ENDC}")
         
+        
+
         # try:
         #     response = self.loadbalancer.describe_load_balancers(
                 
@@ -209,6 +253,47 @@ class Client:
         # except:
         #     pass
 
+    def killDjango(self):
+        response = self.client.describe_instances(Filters = [
+            {
+                'Name' : 'tag:Criador',
+                'Values' : ['Victor']
+            },
+            {
+                'Name' : 'instance-state-name',
+                'Values' : ['running']
+            }
+        ])
+        
+        if response['Reservations']:
+
+            inst_ips = []
+            inst_ids = []
+
+            for inst in response['Reservations']:
+                inst_ips.append(inst['Instances'][0]['PublicIpAddress'])
+                inst_ids.append(inst['Instances'][0]['InstanceId'])
+            
+            for ip in inst_ips:
+                response = self.client.describe_addresses(PublicIps = [ip])
+
+                allocation = response['Addresses'][0]['AllocationId']
+
+                response = self.client.release_address(AllocationId = allocation)
+            
+            print(f"{self.color.OKCYAN}Endereços liberados: \n {inst_ips}{self.color.ENDC}")
+
+            for id in inst_ids:
+                response = self.client.terminate_instances(InstanceIds = [id])
+
+                print(f"{self.color.WARNING}Terminando Instância {id}{self.color.ENDC}")
+
+                waiter = self.client.get_waiter('instance_terminated')
+                waiter.wait(InstanceIds=[id])
+
+                print(f"{self.color.OKCYAN}Instância {id} terminada{self.color.ENDC}")
+            
+            print(f"{self.color.OKGREEN}Todas as Instâncias de {self.region} foram terminadas{self.color.ENDC}")
 
     def createIMG (self, name:str, description:str, instanceID: str):
 
@@ -310,6 +395,8 @@ class Client:
         if response['TargetGroups']:
             
             tg_arn_real = response['TargetGroups'][0]['TargetGroupArn']
+            print(tg_arn_real)
+
 
         return tg_arn_real
 
@@ -404,16 +491,28 @@ class Client:
             print(f"{self.color.WARNING}Não existe nenhum Load Balancer com nome: {lb_name}{self.color.ENDC}")
             pass
 
+        waiter = self.loadbalancer.get_waiter('load_balancers_deleted')
+        waiter.wait(
+            Names=[
+                lb_name
+            ]
+        )
+        time.sleep(60)
+        print(f"{self.color.OKCYAN}Load Balancer {lb_name} deletado{self.color.ENDC}")
+
     def createListener(self, lb_arn, tg_arn):
 
-        # try:
-        #     response = self.loadbalancer.describe_listeners(LoadBalancerArn=lb_arn)
+        try:
+            response = self.loadbalancer.describe_listeners(LoadBalancerArn=lb_arn)['Listeners'][0]['ListenerArn']
+            if response:
+                print(f"{self.color.WARNING}Apagando Listener{self.color.ENDC}")
+                self.loadbalancer.delete_listener(ListenerArn=response)
 
-        #     self.loadbalancer.delete_listener(ListenerArn='string')
+        except:
+            print(f"{self.color.WARNING}Não existe nenhum Listener ativo{self.color.ENDC}")
+            pass
 
-        # except:
-        #     print(f"{self.color.WARNING}Não existe nenhum Listener ativo{self.color.ENDC}")
-        #     pass
+        print(f"{self.color.HEADER}Criando novo Listener{self.color.ENDC}")
 
         response = self.loadbalancer.create_listener(
             LoadBalancerArn=lb_arn,
@@ -427,16 +526,16 @@ class Client:
                 },
             ],    
         )
-
+        print(f"{self.color.OKGREEN}Listener criado com sucesso{self.color.ENDC}")
 
         
     
     def createAutoScaling(self, AS_name:str, LC_name:str, img_id:str, key:str, scrt_group_name:str, tg_arn:str):
 
         try:
-            self.autoscaling.delete_launch_configuration(LaunchConfigurationName=LC_name)
 
-            self.autoscaling.delete_auto_scaling_group(AutoScalingGroupName=AS_name, ForceDelete=True)
+
+            self.autoscaling.delete_launch_configuration(LaunchConfigurationName='launchconfigV')
 
         except:
             print(f"{self.color.WARNING}Não existe nenhum Launch Configuration ou AutoScaling com nomes: {LC_name} e {AS_name}{self.color.ENDC}")
@@ -459,7 +558,7 @@ class Client:
 
         response = self.autoscaling.create_auto_scaling_group(
             AutoScalingGroupName = AS_name,
-            LaunchConfigurationName='LaunchConfig_v',
+            LaunchConfigurationName=LC_name,
             
             MinSize=1,
             MaxSize=5,
@@ -468,15 +567,17 @@ class Client:
                 'us-east-1d', 'us-east-1c', 'us-east-1e', 'us-east-1f', 'us-east-1a', 'us-east-1b'
             ],
             TargetGroupARNs=[
-                'string',
+                tg_arn,
             ],
             
             Tags=[
+                
                 {
-                    'Key': 'Criador',
-                    'Value': 'Victor',
-                    
-                }
+                    'Key': 'Name',
+                    'Value': 'austoscaled_v'
+                },
+              
+             
             ],
             
         )
